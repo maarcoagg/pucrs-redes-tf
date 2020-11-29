@@ -8,48 +8,58 @@ import java.net.*;
 class UDPServer {
    public static void main(String args[])  throws Exception
       {
-         // guarda nome dos arquivos para montar os paths
-         final String fileName = "received_file.txt";
-         final String srcDir = System.getProperty("user.dir");
+         
+         final String sourceDir = System.getProperty("user.dir");
+         byte[] receiveData = new byte[300];
+         DatagramSocket serverSocket = new DatagramSocket(9876);  // UDP socket @ port 9876
+         DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
 
-         // monta path dos arquivos a serem enviados
-         String absoluteFilePath = srcDir + File.separator + "receive" + File.separator + fileName;
-
-         // cria socket do servidor com a porta 9876
-         DatagramSocket serverSocket = new DatagramSocket(9876);
-
-         byte[] receiveData = new byte[10*1024];
-
-         FileOutputStream fos = new FileOutputStream(absoluteFilePath);
-
+         int packetsReceived = 0;
          while(true)
          {
-            System.out.println("Aguardando...");
+            /* Gera um nome aleatorio e aguarda receber pacotes */         
+            final String fileName = generateName();
+            String absoluteFilePath = sourceDir + File.separator + "receive" + File.separator + fileName;
+            FileOutputStream fos = new FileOutputStream(absoluteFilePath);
+            System.out.println("Aguardando...");            
 
-            // declara o pacote a ser recebido
-            DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+            for (int i = 0; i < 80; i++)
+            {
+               /* Recebe pacote e escreve no arquivo .txt */
+               serverSocket.receive(receivePacket);
+               packetsReceived++;
 
-            // recebe o pacote do cliente
-            serverSocket.receive(receivePacket);
+               InetAddress IPAddress = receivePacket.getAddress();
+               int port = receivePacket.getPort();
+               System.out.println("Recebido pacote #"+packetsReceived+" de "+IPAddress+":"+port+".");
 
-            // pega os dados, o endereco IP e a porta do cliente
-            // para poder mandar a msg de volta
-            String fileData = new String(receivePacket.getData());
-            InetAddress IPAddress = receivePacket.getAddress();
-            int port = receivePacket.getPort();
-
-            fos.write(receiveData);
-
-            System.out.println("Mensagem recebida: " + fileData);
-            System.out.println("IP Address: " + IPAddress + "\tPort: "+port);
+               //String packetData = new String(receivePacket.getData());
+               fos.write(receiveData);
+            }
+            
+            fos.close();
 
             // o lint do java sempre apontava warning para 'serverSocket' e 'fos' 
             // pois os mesmos nunca eram fechados. portanto este trecho serve apenas
             //  para eliminar estes warnings.
-            if (fileData.equals(null))
+            if (fileName == null)
                break;
          }
          serverSocket.close();
-         fos.close();
+      }
+
+      private static String generateName()
+      {
+         int max = 10000;
+         int min = 1000;
+         double random = Math.random() * (max  - min + 1) + min;
+         System.out.println("Random number: "+ random);
+         int num = (int) random;
+         System.out.println("Parsed number: "+ num);
+         StringBuilder sb = new StringBuilder("received_").
+                              append(num).
+                              append(".txt");
+         
+         return sb.toString();
       }
 }
