@@ -19,6 +19,7 @@ class UDPServer {
          {
             /* Gera um nome aleatorio e aguarda receber pacotes */         
             final String fileName = generateName();
+            System.out.println("Arquivo \""+fileName+"\" criado.");
             String absoluteFilePath = sourceDir + File.separator + "receive" + File.separator + fileName;
             FileOutputStream fos = new FileOutputStream(absoluteFilePath);
             System.out.println("Aguardando...");            
@@ -53,9 +54,7 @@ class UDPServer {
          int max = 10000;
          int min = 1000;
          double random = Math.random() * (max  - min + 1) + min;
-         System.out.println("Random number: "+ random);
          int num = (int) random;
-         System.out.println("Parsed number: "+ num);
          StringBuilder sb = new StringBuilder("received_").
                               append(num).
                               append(".txt");

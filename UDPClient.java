@@ -12,6 +12,8 @@ class UDPClient {
       
       DatagramSocket clientSocket = new DatagramSocket();   // UDP socket
       InetAddress IPAddress = InetAddress.getByName("localhost"); // IP destino
+      int port = 9876;
+      System.out.println("\nClient conectado no endereço "+IPAddress+":"+port+".\n");
 
       String filePath = selectPath();
       File selectedFile = new File(filePath);
@@ -59,7 +61,7 @@ class UDPClient {
          }
 
          /* Cria pacote UDP e envia ao destino */
-         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, 9876);
+         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, port);
          clientSocket.send(sendPacket);
          System.out.println("Pacote "+i+" enviado. Dados: "+sendSize+" bytes.");
       }
@@ -73,24 +75,33 @@ class UDPClient {
 
    public static String selectPath()
    {
-      final String fileName = "target.txt";
-      final String sourceDir = System.getProperty("user.dir");
-      String absolutePath = sourceDir + File.separator + "send" + File.separator + fileName;
-      
-      String choosenPath = null;
-      System.out.print("\t1 - " + fileName + "\n" +
-                        "Selecione qual arquivo enviar (1-1): ");
-      Scanner userInput = new Scanner(System.in);
-      Integer option = userInput.nextInt();
+      /* codigo novo */
+      final String sourceDir = System.getProperty("user.dir") + File.separator + "send";
+      File f = new File(sourceDir);
+      String[] files = f.list();
+      StringBuilder sb = new StringBuilder();
 
-      if (option.equals(1))
-         choosenPath = absolutePath;
-      else
+      for (int i = 0; i < files.length; i++)
+         sb.append(i).append(" - ").append(files[i]).append("\n");
+      System.out.println(sb.toString());
+      
+      String selectedPath = null;
+      Scanner s = new Scanner(System.in);
+      do
       {
-         System.err.println("Opcao invalida! Abortando execucao...");
-         System.exit(1);
-      }
-      userInput.close();
-      return choosenPath;
+         System.out.print("Selecione arquivo para enviar (0-"+(files.length-1)+"): ");    
+         Integer userInput = s.nextInt();
+         
+         if (userInput < 0 || userInput >= files.length)
+            System.err.println("Arquivo invalido! ");
+         else
+         {
+            String fileName = files[userInput];
+            selectedPath = sourceDir + File.separator + fileName;
+            System.out.println("Selecionado o arquivo: "+fileName+".");
+         }
+      } while (selectedPath == null);
+      s.close();
+      return selectedPath;
    }
 }
