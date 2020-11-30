@@ -3,79 +3,90 @@
 
 import java.io.*; // classes para input e output streams e
 import java.net.*;// DatagramaSocket,InetAddress,DatagramaPacket
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Scanner;
 
 class UDPClient {
+
+   static DatagramSocket socket;   // UDP socket
+   static InetAddress ip; // IP destino
+   static int port = 9876;
+   final static String separator = ";";
    public static void main(String args[]) throws Exception
-   {      
-      final int packetSize = 300;
-      
-      DatagramSocket clientSocket = new DatagramSocket();   // UDP socket
-      InetAddress IPAddress = InetAddress.getByName("localhost"); // IP destino
-      int port = 9876;
-      System.out.println("\nClient conectado no endereço "+IPAddress+":"+port+".\n");
+   {            
+      ip = InetAddress.getByName("localhost");
+      socket = new DatagramSocket();
+      socket.setSoTimeout(5000); // Time-out: 5 seg
+      boolean connected = false;
+      Map<Integer,byte[]> fileMap;
 
-      String filePath = selectPath();
-      File selectedFile = new File(filePath);
-      FileInputStream fis = new FileInputStream(selectedFile);
-      int fileSize = fis.available();
-      
-      /* Cria um array de bytes do tamanho do arquivo*/
-      System.out.println("Tamanho do arquivo: "+fileSize+" bytes");
-      byte[] sendData = new byte[packetSize];
+      /* Define arquivo para enviar ao destino */
+      String filePath = selectFile();
 
-      /* Calcula a quantidade de pacotes necessária para enviar o arquivo completo */
-      int filePackets = (int) Math.ceil((double)fileSize/packetSize);
-      System.out.println("Pacotes necessarios: "+filePackets+" pacotes");
+      /* Mapeia arquivo em pacotes de 300 bytes */
+      fileMap = mapFile(filePath);
 
-      
-      int readedData = 0;
-      /* Transfere arquivo em i pacotes */
-      for (int i = 1; i <= filePackets; i++)
+      /* Tenta 3-Way Handshake */
+      connected = tryConnect();
+
+      if (connected)
       {
-         int sendSize = 0;
-         /* Preenche pacote com dados */
-         if (i < filePackets)
-         {
-            sendSize = 300;
-            for (int j = 0; j < packetSize; j++)
-            {
-               sendData[j] = (byte) fis.read();
-               readedData++;
-            }
-         }
+         System.out.println("Conectado!");
+
+         /* Tenta envio de dados */
+         if(transfer(fileMap))
+            System.out.println("Arquivo enviado com sucesso.");
          else
-         {
-            /* O ultimo pacote pode ter menos de 300 bytes  */
-            sendSize = fileSize - readedData;
+            System.err.println("Erro ao enviar arquivo. :(");
 
-            /* Preenche sendData com o que resta do arquivo */
-            for (int j = 0; j < sendSize; j++)
-            {
-               sendData[j] = (byte) fis.read();
-               readedData++;
-            }
-            /* Preenche o restante do pacote com vazio */
-            for (int j = sendSize; j < packetSize; j++)
-               sendData[j] = Byte.parseByte(" ");
-         }
+         /* Tenta FIN-ACK Handshake */ 
+         connected = tryDisconnect();
+      } else System.err.println("Erro ao conectar. :(");
 
-         /* Cria pacote UDP e envia ao destino */
-         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, port);
-         clientSocket.send(sendPacket);
-         System.out.println("Pacote "+i+" enviado. Dados: "+sendSize+" bytes.");
-      }
-      
-      System.out.println("Arquivo enviado com sucesso.");
-
-      // fecha o cliente
-      clientSocket.close();
-      fis.close();
+      // Encerra cliente
+      socket.close();
    }
 
-   public static String selectPath()
+   private static boolean transfer(Map<Integer,byte[]> f)
    {
-      /* codigo novo */
+      boolean transfered = false;
+      for(int i = 0; i < f.size(); i++)
+      {
+         boolean success = false;
+         int attempts = 0;
+         do
+         {
+            /* Envia pacote i ao servidor*/
+            byte[] data = f.get(i);
+            send(data);
+
+            /* Aguarda ACK i+1 do servidor */
+            System.out.println("Aguardando ACK...");
+            DatagramPacket recvPacket = receive(data);
+
+            /* Exibe resposta do servidor */
+            String msg = cleanMessage(recvPacket);
+
+            /* Verifica se recebeu ACK corretamente */
+            String[] recvData = msg.split(separator);
+            if (recvData.length == 2 && recvData[0].equals("ACK") && Integer.parseInt(recvData[1]) == i+1)
+               success = true;
+            else System.err.println("Resposta ACK inválida do servidor.\n");
+            attempts++;
+         } while(!success & attempts < 3);
+         
+         if (attempts >= 3)
+            break;
+
+         if (i == f.size()-1 && success)
+            transfered = true;
+      }
+      return transfered;
+   }
+
+   private static String selectFile()
+   {
       final String sourceDir = System.getProperty("user.dir") + File.separator + "send";
       File f = new File(sourceDir);
       String[] files = f.list();
@@ -83,7 +94,7 @@ class UDPClient {
 
       for (int i = 0; i < files.length; i++)
          sb.append(i).append(" - ").append(files[i]).append("\n");
-      System.out.println(sb.toString());
+      System.out.print(sb.toString());
       
       String selectedPath = null;
       Scanner s = new Scanner(System.in);
@@ -98,10 +109,280 @@ class UDPClient {
          {
             String fileName = files[userInput];
             selectedPath = sourceDir + File.separator + fileName;
-            System.out.println("Selecionado o arquivo: "+fileName+".");
+            System.out.println("\nSelecionado o arquivo: "+fileName+".");
          }
       } while (selectedPath == null);
       s.close();
       return selectedPath;
+   }
+
+   private static String cleanMessage(DatagramPacket p)
+   {
+      byte[] cleanData = new byte[p.getLength()];
+
+      for (int i = 0; i < p.getLength(); i++)
+         cleanData[i] = p.getData()[i];
+      
+      String cleanMessage = new String(cleanData);
+      System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage);
+      return cleanMessage;
+   }
+
+   /**
+    * Divide o arquivo em 'filePath' em N pacotes de 300 bytes
+    * @param filePath   local do arquivo 
+    * @param separator  separador de dados
+    * @return  Dicionario <num_pacote,dados>
+    */
+   private static Map<Integer,byte[]> mapFile(String filePath)
+   {
+      Map<Integer,byte[]> fileMap = new HashMap<>();
+      File selectedFile = new File(filePath);
+      FileInputStream fis = null;
+      final int packetSize = 300;
+      String flag = "DATA";
+      int fileSize = 0;
+      int seq = 0;
+
+      try {
+         fis = new FileInputStream(selectedFile);
+         fileSize = fis.available();
+      } catch (FileNotFoundException e) {
+         System.err.println(e);
+         System.exit(1);
+      } catch (IOException e) {
+         System.err.println(e);
+         System.exit(1);
+      }
+            
+      /* Calcula a quantidade de pacotes necessária para enviar o arquivo completo */
+      int filePackets = (int) Math.ceil((double)fileSize/packetSize);
+      System.out.println("Tamanho em bytes: "+fileSize);
+      System.out.println("Pacotes necessarios: "+filePackets+"\n");
+
+      /* Mapeia header + pacotes de 300 bytes */
+      int readedData = 0;
+      try {
+         for(int i = 0; i < filePackets; i++)
+         {
+            int dataSize = 0;            
+            /* Cria cabeçalho e add no pacote 'sendData' */
+            String header = flag+separator+(seq++)+separator;
+            byte[] headerBytes = header.getBytes();
+            int headerSize = headerBytes.length;
+            byte[] sendData = new byte[headerSize+packetSize];
+            for(int j = 0; j < headerSize; j++)
+               sendData[j] = headerBytes[j];
+            
+            /* Add dados no pacote 'sendData' */
+            if (i < filePackets-1)
+            {
+               dataSize = 300;
+               for (int j = headerSize; j < (headerSize+packetSize); j++)
+               {
+                  sendData[j] = (byte) fis.read();
+                  readedData++;
+               }
+            }
+            else
+            {
+               /* O ultimo pacote pode ter menos de 300 bytes  */
+               dataSize = fileSize - readedData;
+
+               /* Preenche sendData com o que resta do arquivo */
+               for (int j = headerSize; j < headerSize+dataSize; j++)
+               {
+                  sendData[j] = (byte) fis.read();
+                  readedData++;
+               }
+               /* Preenche o restante do pacote com vazio */
+               for (int j = headerSize+dataSize; j < headerSize+packetSize; j++)
+                  sendData[j] = Byte.parseByte("0");
+            }
+            System.out.println("Pacote #"+i+" criado ("+(sendData.length)+" bytes).");
+            fileMap.put(i, sendData);
+         }
+      } catch (IOException e) {
+         System.err.println(e);
+         System.exit(1);
+      }
+
+      return fileMap;
+   }
+
+   private static boolean tryConnect()
+   {
+      boolean connected = false;
+      int attempts = 1;
+      int seq = -1;
+      int ack = -1;
+      String msg = null;
+      String[] data = null;
+      DatagramPacket recvPacket = null;
+
+      do
+      {
+         System.out.println("Tentativa #"+attempts+" de conexão com servidor...");
+         
+         /* Envia SYN */
+         seq = 0;
+         msg = "SYN"+separator+seq;
+         send(msg);
+
+         /* Aguarda resposta do servidor */
+         System.out.println("\nEsperando SYN-ACK...");
+         recvPacket = receive(msg);
+
+         /* Exibe resposta do servidor */
+         msg = cleanMessage(recvPacket);
+         //System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+recvPacket.getLength()+" bytes): "+msg);
+
+         /* Verifica se recebeu SYN-ACK corretamente */
+         data = msg.split(separator);
+         if (data.length == 3 && data[0].equals("SYN-ACK") && Integer.parseInt(data[2]) == seq+1)
+         {
+            /* Envia ACK */
+            ack = Integer.parseInt(data[1])+1;
+            msg = "ACK;"+ack;
+            send(msg);
+
+            System.out.println("Conexão estabelecida.\n");
+            connected = true;
+         } else System.err.println("Resposta inválida do servidor!\n");
+         
+         attempts++;
+      } while(!connected && attempts <= 3);
+
+      return connected;
+   }
+
+   private static boolean tryDisconnect()
+   {
+      DatagramPacket recvPacket = null;
+      boolean connected = true;
+      String[] data = null;
+      String msg = null;
+      int attempts = 1;
+      int svSeq = -1;
+      int svAck = -1;
+      int seq = -1;
+      int ack = -1;
+
+      do
+      {
+         System.out.println("Tentando encerrar conexão com servidor...\n");
+
+         /* Envia FIN */
+         seq = 0;
+         msg = "FIN"+separator+seq;
+         send(msg);
+
+         /* Aguarda resposta do servidor */
+         System.out.println("\nEsperando ACK...");
+         recvPacket = receive(msg);
+         msg = cleanMessage(recvPacket);
+         //System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+recvPacket.getLength()+" bytes): "+msg);
+
+         /* Verifica se recebeu ACK corretamente */
+         data = msg.split(separator);
+         if (data.length == 2 && data[0].equals("ACK") && Integer.parseInt(data[1]) == seq+1)
+         {
+            svAck = Integer.parseInt(data[1]);
+
+            /* Aguarda FIN-ACK do servidor */
+            System.out.println("\nEsperando FIN-ACK...");
+            recvPacket = receive(msg);
+            msg = cleanMessage(recvPacket);
+            //System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+recvPacket.getLength()+" bytes): "+msg);
+
+            /* Verifica se recebeu FIN-ACK corretamente */
+            data = msg.split(separator);
+            if (data.length == 3 && data[0].equals("FIN-ACK") && Integer.parseInt(data[2]) == svAck)
+            {
+               svSeq = Integer.parseInt(data[1]);
+               /* Envia ACK */
+               ack = svSeq+1;
+               msg = "ACK;"+ack;
+               send(msg);
+
+               /* Encerra conexão */
+               System.out.println("Conexão encerrada.\n");
+               connected = false;
+            } else System.err.println("Resposta FIN-ACK inválida do servidor!\n");
+         } else System.err.println("Resposta ACK inválida do servidor!\n");
+         attempts++;
+      }while(connected && attempts <= 3);
+
+      return false;
+   }
+
+   private static void send(String msg)
+   {
+      byte[] sendData = msg.getBytes();
+      DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
+
+      System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".");
+      try{
+         socket.send(sendPacket);
+      } catch (Exception e) {
+         System.err.println("ERRO: Não foi possível enviar pacote");
+         System.err.println(e);
+      }
+   }
+
+   private static void send(byte[] sendData)
+   {
+      DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
+
+      System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+new String(sendData)+".");
+      try{
+         socket.send(sendPacket);
+      } catch (Exception e) {
+         System.err.println("ERRO: Não foi possível enviar pacote");
+         System.err.println(e);
+      }
+   }
+
+   /**
+    * Recebe pacote UDP de até 1 Kb. Retransmite 'msg' caso uma exceção ocorra.
+    * @param msg Mensagem a ser retransmitida
+    * @return  Pacote UDP recebido.
+    */
+   private static DatagramPacket receive(String msg)
+   {
+      DatagramPacket recvPacket = null;
+      byte[] recvData = new byte[1024];
+      
+      recvPacket = new DatagramPacket(recvData, recvData.length);
+      try {
+         socket.receive(recvPacket);
+      } catch (SocketTimeoutException e) {
+         System.err.println("TIMEOUT: Retransmitindo mensagem.");
+         send(msg);
+      } catch (IOException e){
+         System.err.println("I/O: Retransmitindo mensagem");
+         send(msg);
+      }
+
+      return recvPacket;
+   }
+
+   private static DatagramPacket receive(byte[] data)
+   {
+      DatagramPacket recvPacket = null;
+      byte[] recvData = new byte[1024];
+      
+      recvPacket = new DatagramPacket(recvData, recvData.length);
+      try {
+         socket.receive(recvPacket);
+      } catch (SocketTimeoutException e) {
+         System.err.println("TIMEOUT: Retransmitindo mensagem.");
+         send(data);
+      } catch (IOException e){
+         System.err.println("I/O: Retransmitindo mensagem");
+         send(data);
+      }
+
+      return recvPacket;
    }
 }
