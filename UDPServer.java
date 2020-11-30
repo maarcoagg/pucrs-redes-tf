@@ -6,9 +6,11 @@ import java.io.*;
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.zip.CRC32;
 
 class UDPServer {
 
+   static CRC32 crc = new CRC32();
    static DatagramSocket socket; // UDP socket
    static InetAddress ip; // IP cliente
    static int port;  // Port cliente
@@ -32,6 +34,7 @@ class UDPServer {
             fos = createFile();
 
             String msg = null;
+            long crcVal;
             int ack = 0;
             do
             {
@@ -45,12 +48,18 @@ class UDPServer {
                   int seq = Integer.parseInt(recvData[1]);
                   if (ack == seq)
                   {
-                     byte[] data = recvData[2].getBytes();
-                     System.out.println("Pacote #"+ack+" recebido ("+data.length+" bytes).");
-                     fileMap.put(ack, data);
-                     ack++;
-                     msg = "ACK" + separator + ack;
-                     send(msg);
+                     byte[] data = recvData[3].getBytes();
+                     crc.update(data);
+                     crcVal = crc.getValue();
+                     System.out.print("\nPacote #"+ack+" recebido ("+data.length+" bytes). CRC: "+crcVal);
+                     if (crcVal == Long.parseLong(recvData[2]))
+                     {
+                        System.out.println("\t(OK).");
+                        fileMap.put(ack, data);
+                        ack++;
+                        msg = "ACK" + separator + ack;
+                        send(msg);
+                     } else System.out.println("\t(NOT-OK).");  
                   }
                   else
                   {
@@ -103,7 +112,7 @@ class UDPServer {
       
       String cleanMessage = new String(cleanData);
       if (p.getLength() < 300)
-         System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage);
+         System.out.println("\nRecebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage);
       else
          System.out.println("Recebido "+p.getLength()+" bytes de "+ip+":"+port+".");
       return cleanMessage;
@@ -114,7 +123,7 @@ class UDPServer {
       byte[] sendData = msg.getBytes();
       DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
 
-      System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".");
+      System.out.println("\nEnviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".");
       try{
          socket.send(sendPacket);
       } catch (Exception e) {

@@ -6,12 +6,16 @@ import java.net.*;// DatagramaSocket,InetAddress,DatagramaPacket
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.zip.CRC32;
 
 class UDPClient {
 
+   static CRC32 crc = new CRC32();
    static DatagramSocket socket; // UDP socket
    static InetAddress ip;  // IP servidor
    static int port = 9876; // Port servidor
+   static int winSize = 1;
+   static String winMode = "SS";
    final static String separator = ";";
    final static String sourceDir = System.getProperty("user.dir") + File.separator + "send";
 
@@ -36,9 +40,9 @@ class UDPClient {
       {
          /* Transfere arquivo para servidor */
          if(transfer(fileMap))
-            System.out.println("Arquivo enviado com sucesso.");
+            System.out.println("Arquivo enviado com sucesso.\n");
          else
-            System.err.println("Erro ao enviar arquivo. :(");
+            System.err.println("Erro ao enviar arquivo. :(\n");
          
          /* Tenta FIN-ACK Handshake */ 
          connected = tryDisconnect();
@@ -53,25 +57,27 @@ class UDPClient {
 
    private static boolean transfer(Map<Integer,byte[]> f)
    {
-      int windowSize = 1; // Janela de congestionamento
+      winSize = 1; // Janela de congestionamento
+      winMode = "Slow Start"; //Slow Start
       int seq = 0;  // Pacotes enviados
       byte[] data = null;
 
       boolean transfered = false;
-
       /* Enquanto todos pacotes não forem enviados */
       while (seq < f.size())
       {
-         for(int i = 0; i < windowSize; i++)
+         System.out.println("Window size: "+winSize+" | Window mode: "+winMode+".\n");
+         for(int i = 0; i < winSize; i++)
          {
             if (seq+i >= f.size())
                break;
             data = f.get(seq+i); 
+            System.out.println("Enviando pacote "+(seq+i)+"...");
             send(data);
          }
 
          /* Aguarda ACKs do servidor*/
-         for(int i = 0; i < windowSize; i++)
+         for(int i = 0; i < winSize; i++)
          {
             if (seq+i >= f.size())
                break;
@@ -80,19 +86,60 @@ class UDPClient {
             String[] recvData = msg.split(separator);
             if (recvData.length == 2 && recvData[0].equals("ACK"))
             {
-               /* se ack = seq+1 */
                if (Integer.parseInt(recvData[1]) == seq+1)
                   seq++;
                else
                   System.err.println("ACK esperado:"+(seq+1)+"\tAck recebido: "+Integer.parseInt(recvData[1]));
-            } else System.err.println("Resposta ACK inválida do servidor");
+            } else System.err.println("Resposta ACK inválida do servidor:\n"+msg);
          }
 
-         if (seq == f.size()-1)
+         /* Se todos pacotes enviados foram confirmados, aumenta janela */
+         /*
+         System.out.println("Packets Sent: "+sent+"\tPackets Confirmed: "+confirmed+"\tSEQ: "+seq+"\n");
+         
+         if (confirmed == winSize)
+            winSize = manageWindow();
+         else
+            if (winMode.equals("SS"))
+            {
+               winSize /= 2;
+               winMode = "CA";
+               winSize = manageWindow();
+            }
+         */
+        
+         /* Se último pacote foi confirmado, arquivo é dado como transferido. */
+         if (seq == f.size())
             transfered = true;
       }
       return transfered;
    }
+
+   /*private static int manageWindow()
+   {
+      final int maxSize = 16;
+      int size;
+      switch(winMode)
+      {
+         case "SS": 
+            size = 2*winSize;
+            if (size > maxSize)
+               return maxSize;
+            return size;
+         case "CA": 
+            size = winSize+1;
+            if (size > maxSize)
+               return maxSize;
+            return size;
+         case "FR":
+            winSize = winSize/2;
+            winMode = "CA";
+            return winSize;
+         default:
+            System.err.println("Window Tag desconhecida.");
+            return winSize;
+      }
+   }*/
 
    private static String selectFile()
    {
@@ -224,53 +271,69 @@ class UDPClient {
       System.out.println("Tamanho em bytes: "+fileSize);
       System.out.println("Pacotes necessarios: "+filePackets+"\n");
 
+      byte[] sendData;
+      byte[] headerBytes;
+      byte[] dataBytes;
+      long crcVal;
       /* Mapeia header + pacotes de 300 bytes */
       int readedData = 0;
       try {
          for(int i = 0; i < filePackets; i++)
          {
-            int dataSize = 0;            
-            /* Cria cabeçalho e add no pacote 'sendData' */
-            String header = flag+separator+(seq++)+separator;
-            byte[] headerBytes = header.getBytes();
-            int headerSize = headerBytes.length;
-            byte[] sendData = new byte[headerSize+packetSize];
-            for(int j = 0; j < headerSize; j++)
-               sendData[j] = headerBytes[j];
-            
-            /* Add dados no pacote 'sendData' */
-            if (i < filePackets-1)
+            /* Cria pacote de 300 bytes de dados*/ 
+            int dataSize = 0;   
+            dataBytes = new byte[packetSize];
+
+            if (i < filePackets-1) //se pacote não for o ultimo
             {
                dataSize = 300;
-               for (int j = headerSize; j < (headerSize+packetSize); j++)
+               for(int j = 0; j < dataSize; j++) //le 300 bytes de dados
                {
-                  sendData[j] = (byte) fis.read();
+                  dataBytes[j] = (byte) fis.read();
                   readedData++;
                }
-            }
+            } 
             else
             {
-               /* O ultimo pacote pode ter menos de 300 bytes  */
                dataSize = fileSize - readedData;
-
-               /* Preenche sendData com o que resta do arquivo */
-               for (int j = headerSize; j < headerSize+dataSize; j++)
+               for(int j = 0; j < dataSize; j++) //le N bytes de dados
                {
-                  sendData[j] = (byte) fis.read();
+                  dataBytes[j] = (byte) fis.read();
                   readedData++;
                }
-               /* Preenche o restante do pacote com vazio */
-               for (int j = headerSize+dataSize; j < headerSize+packetSize; j++)
-                  sendData[j] = Byte.parseByte("0");
             }
+
+            /* Calcula CRC*/
+            crc.update(dataBytes);
+            crcVal = crc.getValue();
+
+            /* Cria cabeçalho em bytes*/
+            String header = flag+separator+(seq++)+separator+crcVal+separator;
+            headerBytes = header.getBytes();
+            int headerSize = headerBytes.length;
+
+            /* Cria pacote de envio em bytes */
+            sendData = new byte[headerSize+packetSize];
+
+            /* Adiciona cabeçalho */
+            for(int j = 0; j < headerSize; j++)
+               sendData[j] = headerBytes[j];
+
+            /* Adiciona dados */
+            int aux = headerSize;
+            for(int j = 0; j < packetSize; j++)
+               sendData[aux++] = dataBytes[j];
+
+            /* Adiciona no dicionario*/
             fileMap.put(i, sendData);
+
+            System.out.println("CRC do pacote #"+(i+1)+": "+crcVal);
          }
          System.out.println("Pacotes criados.");
       } catch (IOException e) {
          System.err.println(e);
          System.exit(1);
       }
-
       return fileMap;
    }
 
@@ -366,7 +429,7 @@ class UDPClient {
             } else System.err.println("Resposta FIN-ACK inválida do servidor!\n");
          } else System.err.println("Resposta ACK inválida do servidor!\n");
          attempts++;
-      }while(connected && attempts <= 3);
+      }while(connected);
 
       return false;
    }
