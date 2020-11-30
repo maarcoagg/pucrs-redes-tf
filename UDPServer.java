@@ -89,7 +89,14 @@ class UDPServer {
             for(int i = 0; i < fileMap.size(); i++)
             {
                byte[] data = fileMap.get(i);
-               fos.write(data);
+               if (i < fileMap.size()-1) //se nao for ultimo pacote
+                  fos.write(data);
+               else //último pacote
+               {
+                  String str = new String(data);
+                  str = str.split(":")[0] + ":";
+                  fos.write(str.getBytes());
+               }
             }
             fileMap = new HashMap<>();
 

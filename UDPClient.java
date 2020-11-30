@@ -43,14 +43,11 @@ class UDPClient {
          /* Transfere arquivo para servidor */
          if(transfer(fileMap))
          {
-            System.out.println("Arquivo enviado com sucesso.\n");
-
             System.out.println("Enviando CHECKSUM para o servidor: "+checksum+"\n");
             String msg = "CHECKSUM" + separator + checksum;
             send(msg);
-
-
-          
+            
+            System.out.println("Arquivo enviado com sucesso.\n");
          }
          else
             System.err.println("Erro ao enviar arquivo. :(\n");
@@ -321,6 +318,8 @@ class UDPClient {
                   dataBytes[j] = (byte) fis.read();
                   readedData++;
                }
+
+               System.out.println("Ultimo pacote ("+dataSize+"/"+dataBytes.length+" bytes): "+new String(dataBytes));
             }
 
             /* Calcula CRC*/
