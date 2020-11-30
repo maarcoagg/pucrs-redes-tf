@@ -33,21 +33,20 @@ class UDPClient {
 
       if (connected)
       {
-         /* Tenta envio de dados */
-         
-         /*if(transfer(fileMap))
+         /* Transfere arquivo para servidor */
+         if(transfer(fileMap))
             System.out.println("Arquivo enviado com sucesso.");
          else
             System.err.println("Erro ao enviar arquivo. :(");
-         */
-
+         
          /* Tenta FIN-ACK Handshake */ 
          connected = tryDisconnect();
-         System.exit(0);
-      } else System.err.println("Erro ao conectar. :(");
-
-      System.exit(1);
-      // Encerra cliente
+      }
+      else 
+      {
+         System.err.println("Erro ao conectar. :(");
+         System.exit(1);
+      }
       socket.close();
    }
 
@@ -202,9 +201,9 @@ class UDPClient {
                for (int j = headerSize+dataSize; j < headerSize+packetSize; j++)
                   sendData[j] = Byte.parseByte("0");
             }
-            System.out.println("Pacote #"+i+" criado ("+(sendData.length)+" bytes).");
             fileMap.put(i, sendData);
          }
+         System.out.println("Pacotes criados.");
       } catch (IOException e) {
          System.err.println(e);
          System.exit(1);
@@ -285,7 +284,7 @@ class UDPClient {
             svAck = Integer.parseInt(data[1]);
 
             /* Aguarda FIN-ACK do servidor */
-            System.out.println("\nEsperando FIN-ACK...");
+            System.out.println("Esperando FIN-ACK...");
             recvPacket = receive(msg);
             msg = cleanMessage(recvPacket);
             
@@ -315,7 +314,7 @@ class UDPClient {
       byte[] sendData = msg.getBytes();
       DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
 
-      System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".");
+      System.out.println("Enviando "+sendData.length+" bytes para "+ip+":"+port+".");
       try{
          socket.send(sendPacket);
       } catch (Exception e) {
@@ -327,8 +326,11 @@ class UDPClient {
    private static void send(byte[] sendData)
    {
       DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
-
-      System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+new String(sendData)+".");
+      if (sendData.length < 300)
+         System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+new String(sendData)+".");
+      else
+         System.out.println("Enviando "+sendData.length+" bytes para "+ip+":"+port+".");
+         
       try{
          socket.send(sendPacket);
       } catch (Exception e) {
