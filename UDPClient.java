@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.zip.CRC32;
+import java.security.MessageDigest;
 
 class UDPClient {
 
@@ -15,6 +16,7 @@ class UDPClient {
    static InetAddress ip;  // IP servidor
    static int port = 9876; // Port servidor
    static int winSize = 1;
+   static String checksum;
    static String winMode = "SS";
    final static String separator = ";";
    final static String sourceDir = System.getProperty("user.dir") + File.separator + "send";
@@ -40,7 +42,16 @@ class UDPClient {
       {
          /* Transfere arquivo para servidor */
          if(transfer(fileMap))
+         {
             System.out.println("Arquivo enviado com sucesso.\n");
+
+            System.out.println("Enviando CHECKSUM para o servidor: "+checksum+"\n");
+            String msg = "CHECKSUM" + separator + checksum;
+            send(msg);
+
+
+          
+         }
          else
             System.err.println("Erro ao enviar arquivo. :(\n");
          
@@ -172,6 +183,15 @@ class UDPClient {
          }
       } while (selectedPath == null);
       s.close();
+      
+      try {
+         MessageDigest md5Digest = MessageDigest.getInstance("MD5");
+         checksum = getFileChecksum(md5Digest,new File(selectedPath));
+         System.out.println("\nChecksum do arquivo "+fileName+": "+checksum);
+      } catch (Exception e) {
+         System.err.println("ERRO: "+e);
+         System.exit(1);
+      }
       return selectedPath;
    }
 
@@ -426,8 +446,8 @@ class UDPClient {
                /* Encerra conexão */
                System.out.println("Conexão encerrada.\n");
                connected = false;
-            } else System.err.println("Resposta FIN-ACK inválida do servidor!\n");
-         } else System.err.println("Resposta ACK inválida do servidor!\n");
+            } else System.err.println("Resposta FIN-ACK inválida do servidor!\n"+msg);
+         } else System.err.println("Resposta ACK inválida do servidor:\n"+msg);
          attempts++;
       }while(connected);
 
@@ -505,5 +525,30 @@ class UDPClient {
       }
 
       return recvPacket;
+   }
+
+   private static String getFileChecksum(MessageDigest digest, File file) throws IOException
+   {
+      FileInputStream fis = new FileInputStream(file);
+      
+      byte[] byteArray = new byte[1024];
+      int bytesCount = 0; 
+         
+      while ((bytesCount = fis.read(byteArray)) != -1) {
+         digest.update(byteArray, 0, bytesCount);
+      }
+      
+      fis.close();
+      
+      byte[] bytes = digest.digest();
+      
+      StringBuilder sb = new StringBuilder();
+      for(int i=0; i< bytes.length ;i++)
+      {
+         sb.append(Integer.toString((bytes[i] & 0xff) + 0x100, 16).substring(1));
+      }
+      
+      //return complete hash
+      return sb.toString();
    }
 }

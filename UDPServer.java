@@ -7,6 +7,7 @@ import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.zip.CRC32;
+import java.security.MessageDigest;
 
 class UDPServer {
 
@@ -14,6 +15,8 @@ class UDPServer {
    static DatagramSocket socket; // UDP socket
    static InetAddress ip; // IP cliente
    static int port;  // Port cliente
+   static String checksum;
+   static String filePath;
    final static String separator = ";";
    final static String sourceDir = System.getProperty("user.dir");
 
@@ -68,6 +71,9 @@ class UDPServer {
                      send(msg);
                   }
                   break;
+                  case "CHECKSUM":
+                     checksum = recvData[1];
+                     break;
                   case "FIN": /* Finaliza conexão */
                   connected = tryDisconnect(Integer.parseInt(recvData[1]));
                   break;
@@ -86,6 +92,11 @@ class UDPServer {
                fos.write(data);
             }
             fileMap = new HashMap<>();
+
+            boolean equalChecksum = verifyChecksum();
+            if (equalChecksum)  
+               System.out.println("Checksum OK.");
+            else System.out.println("Checksum NOT-OK.");
          }
       }
    }
@@ -259,6 +270,7 @@ class UDPServer {
    {
       final String fileName = generateName();
       final String absoluteFilePath = sourceDir + File.separator + "receive" + File.separator + fileName;
+      filePath = absoluteFilePath;
       FileOutputStream fos;
       try {
          fos = new FileOutputStream(absoluteFilePath);
@@ -278,5 +290,46 @@ class UDPServer {
          System.err.println("SOCKET: "+e);
          System.exit(1);
       }
+   }
+
+   private static String getFileChecksum(MessageDigest digest, File file) throws IOException
+   {
+      FileInputStream fis = new FileInputStream(file);
+      
+      byte[] byteArray = new byte[1024];
+      int bytesCount = 0; 
+         
+      while ((bytesCount = fis.read(byteArray)) != -1) {
+         digest.update(byteArray, 0, bytesCount);
+      }
+      
+      fis.close();
+      
+      byte[] bytes = digest.digest();
+      
+      StringBuilder sb = new StringBuilder();
+      for(int i=0; i< bytes.length ;i++)
+      {
+         sb.append(Integer.toString((bytes[i] & 0xff) + 0x100, 16).substring(1));
+      }
+      
+      //return complete hash
+      return sb.toString();
+   }
+
+   private static boolean verifyChecksum()
+   {
+      boolean equal = false;
+      try{
+         MessageDigest md5Digest = MessageDigest.getInstance("MD5");
+         String thisChecksum = getFileChecksum(md5Digest,new File(filePath));
+         System.out.println("Checksum gerado: "+thisChecksum);
+         equal = checksum.equals(thisChecksum);
+      } catch (Exception e) {
+         System.err.println("CHECKSUM: "+e);
+         System.exit(1);
+      }
+
+      return equal;
    }
 }
