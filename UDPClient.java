@@ -13,6 +13,7 @@ class UDPClient {
    static InetAddress ip;  // IP servidor
    static int port = 9876; // Port servidor
    final static String separator = ";";
+   final static String sourceDir = System.getProperty("user.dir") + File.separator + "send";
 
    public static void main(String args[]) throws Exception
    {            
@@ -89,33 +90,88 @@ class UDPClient {
 
    private static String selectFile()
    {
-      final String sourceDir = System.getProperty("user.dir") + File.separator + "send";
       File f = new File(sourceDir);
       String[] files = f.list();
-      StringBuilder sb = new StringBuilder();
+      StringBuilder sb = new StringBuilder("0 - Gerar arquivo aleatório\n");
 
       for (int i = 0; i < files.length; i++)
-         sb.append(i).append(" - ").append(files[i]).append("\n");
+         sb.append(i+1).append(" - ").append(files[i]).append("\n");
       System.out.print(sb.toString());
       
       String selectedPath = null;
+      String fileName = null;
       Scanner s = new Scanner(System.in);
       do
       {
-         System.out.print("Selecione arquivo para enviar (0-"+(files.length-1)+"): ");    
+         System.out.print("Selecione arquivo para enviar (0-"+(files.length)+"): ");    
          Integer userInput = s.nextInt();
          
-         if (userInput < 0 || userInput >= files.length)
-            System.err.println("Arquivo invalido! ");
-         else
+         if (userInput < 0 || userInput > files.length)
+            System.err.println("Escolha um arquivo válido! ");
+         else 
          {
-            String fileName = files[userInput];
+            if (userInput == 0)
+               fileName = generateFile(); // cria arquivo e retorna nome
+            else
+               fileName = files[userInput-1];
             selectedPath = sourceDir + File.separator + fileName;
             System.out.println("\nSelecionado o arquivo: "+fileName+".");
          }
       } while (selectedPath == null);
       s.close();
       return selectedPath;
+   }
+
+   private static String generateFile()
+   {
+      String fileName = generateName();
+      final String absoluteFilePath = sourceDir + File.separator + fileName;
+      FileOutputStream fos;
+      try {
+         fos = new FileOutputStream(absoluteFilePath);
+         System.out.println("Arquivo \""+fileName+"\" criado.");
+
+         int max = 3000;
+         int min = 300;
+         double random = Math.random() * (max  - min + 1) + min;
+         int size = (int) random;
+         System.out.println("Tamanho escolhido: "+size+" bytes.");
+
+         max = 126;
+         min = 60;
+         for(int i = 0; i < size; i++ )
+         {
+            random = Math.random() * (max  - min + 1) + min;
+            int num = (int) random;
+            char c = (char) num;
+            byte b = (byte) c;
+            try{
+               fos.write(b);
+            } catch (IOException e) {
+               System.err.println("I/O: "+e);
+               System.exit(1);
+            }
+         }
+         System.out.println("Conteudo de \""+fileName+"\" criado.");
+      } catch (FileNotFoundException e) {
+         System.err.println("ERRO: "+e);
+         fos = null;
+      }
+
+      return fileName;
+   }
+
+   private static String generateName()
+   {
+      int max = 10000;
+      int min = 1000;
+      double random = Math.random() * (max  - min + 1) + min;
+      int num = (int) random;
+      StringBuilder sb = new StringBuilder("file_").
+                           append(num).
+                           append(".txt");
+      
+      return sb.toString();
    }
 
    private static String cleanMessage(DatagramPacket p)
@@ -330,7 +386,7 @@ class UDPClient {
          System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+new String(sendData)+".");
       else
          System.out.println("Enviando "+sendData.length+" bytes para "+ip+":"+port+".");
-         
+
       try{
          socket.send(sendPacket);
       } catch (Exception e) {
