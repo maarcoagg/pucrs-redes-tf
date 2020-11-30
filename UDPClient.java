@@ -9,10 +9,11 @@ import java.util.Scanner;
 
 class UDPClient {
 
-   static DatagramSocket socket;   // UDP socket
-   static InetAddress ip; // IP destino
-   static int port = 9876;
+   static DatagramSocket socket; // UDP socket
+   static InetAddress ip;  // IP servidor
+   static int port = 9876; // Port servidor
    final static String separator = ";";
+
    public static void main(String args[]) throws Exception
    {            
       ip = InetAddress.getByName("localhost");
@@ -32,18 +33,20 @@ class UDPClient {
 
       if (connected)
       {
-         System.out.println("Conectado!");
-
          /* Tenta envio de dados */
-         if(transfer(fileMap))
+         
+         /*if(transfer(fileMap))
             System.out.println("Arquivo enviado com sucesso.");
          else
             System.err.println("Erro ao enviar arquivo. :(");
+         */
 
          /* Tenta FIN-ACK Handshake */ 
          connected = tryDisconnect();
+         System.exit(0);
       } else System.err.println("Erro ao conectar. :(");
 
+      System.exit(1);
       // Encerra cliente
       socket.close();
    }
@@ -124,7 +127,7 @@ class UDPClient {
          cleanData[i] = p.getData()[i];
       
       String cleanMessage = new String(cleanData);
-      System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage);
+      System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage+"\n");
       return cleanMessage;
    }
 
@@ -213,36 +216,29 @@ class UDPClient {
    private static boolean tryConnect()
    {
       boolean connected = false;
-      int attempts = 1;
-      int seq = -1;
-      int ack = -1;
-      String msg = null;
-      String[] data = null;
-      DatagramPacket recvPacket = null;
-
+      int attempts = 1;      
       do
       {
-         System.out.println("Tentativa #"+attempts+" de conexão com servidor...");
+         System.out.println("\nIniciando tentativa #"+attempts+" de conexão com servidor...");
          
          /* Envia SYN */
-         seq = 0;
-         msg = "SYN"+separator+seq;
+         int seq = 0;
+         String msg = "SYN"+separator+seq;
          send(msg);
 
          /* Aguarda resposta do servidor */
          System.out.println("\nEsperando SYN-ACK...");
-         recvPacket = receive(msg);
+         DatagramPacket recvPacket = receive(msg);
 
          /* Exibe resposta do servidor */
          msg = cleanMessage(recvPacket);
-         //System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+recvPacket.getLength()+" bytes): "+msg);
 
          /* Verifica se recebeu SYN-ACK corretamente */
-         data = msg.split(separator);
+         String[] data = msg.split(separator);
          if (data.length == 3 && data[0].equals("SYN-ACK") && Integer.parseInt(data[2]) == seq+1)
          {
             /* Envia ACK */
-            ack = Integer.parseInt(data[1])+1;
+            int ack = Integer.parseInt(data[1])+1;
             msg = "ACK;"+ack;
             send(msg);
 
@@ -270,7 +266,7 @@ class UDPClient {
 
       do
       {
-         System.out.println("Tentando encerrar conexão com servidor...\n");
+         System.out.println("Iniciando tentativa #"+attempts+" de encerrar conexão com servidor.\n");
 
          /* Envia FIN */
          seq = 0;
@@ -281,8 +277,7 @@ class UDPClient {
          System.out.println("\nEsperando ACK...");
          recvPacket = receive(msg);
          msg = cleanMessage(recvPacket);
-         //System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+recvPacket.getLength()+" bytes): "+msg);
-
+         
          /* Verifica se recebeu ACK corretamente */
          data = msg.split(separator);
          if (data.length == 2 && data[0].equals("ACK") && Integer.parseInt(data[1]) == seq+1)
@@ -293,8 +288,7 @@ class UDPClient {
             System.out.println("\nEsperando FIN-ACK...");
             recvPacket = receive(msg);
             msg = cleanMessage(recvPacket);
-            //System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+recvPacket.getLength()+" bytes): "+msg);
-
+            
             /* Verifica se recebeu FIN-ACK corretamente */
             data = msg.split(separator);
             if (data.length == 3 && data[0].equals("FIN-ACK") && Integer.parseInt(data[2]) == svAck)

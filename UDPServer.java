@@ -4,140 +4,68 @@
 
 import java.io.*;
 import java.net.*;
+import java.util.HashMap;
+import java.util.Map;
 
 class UDPServer {
-   public static void main(String args[])  throws Exception
-   {
-      
-      final String sourceDir = System.getProperty("user.dir");
-      byte[] connData = new byte[1024];
-      boolean connected = false;
-      DatagramPacket connPacket = new DatagramPacket(connData, connData.length);
-      DatagramSocket serverSocket = new DatagramSocket(9876);  // UDP socket @ port 9876
-      serverSocket.setSoTimeout(5000);
-      InetAddress IPAddress;
-      int port;
 
-      /* Transmission Variables */
-      final String separator = ";";
-      String[] data = null;
-      String msg = null;
-      String flag = null;
+   static DatagramSocket socket; // UDP socket
+   static InetAddress ip; // IP cliente
+   static int port;  // Port cliente
+   final static String separator = ";";
+   final String sourceDir = System.getProperty("user.dir");
+
+   public static void main(String args[])  throws Exception
+   {      
+      socket = new DatagramSocket(9876);
+      boolean connected = false;
+      Map<Integer,byte[]> fileMap = new HashMap<>();
+
+      /* Transmission Variables       
       int cliSeq = -1;
       int cliAck = -1;
       int seq = -1;
       int ack = -1;
 
-      int packetsReceived = 0;
+      int packetsReceived = 0;*/
       while(true)
       {    
          /**
-          * Espera receber uma conexao OK
           * Estabelece conexao OK
           * Gera um arquivo .txt OK
           * Transfere arquivos TO-DO
           * Fecha conexao DOING
           */
          
-         /* Aguarda receber conexao */         
-         System.out.println("\nEscutando conexões...\n");
-         serverSocket.receive(connPacket);
+         connected = tryConnect();
          
-         IPAddress = connPacket.getAddress();
-         port = connPacket.getPort();
-      
-         /* Exibe mensagem recebida */
-         msg = cleanMessage(connPacket);
-         System.out.println("Recebido de "+IPAddress+":"+port+" a mensagem ("+connPacket.getLength()+" bytes): "+msg);
-
-         /* Se receber SYN, tenta 3-Way Handshake */    
-         data = msg.split(separator);
-         if (data.length == 2 && data[0].equals("SYN"))
-         {
-            serverSocket.setSoTimeout(5000);
-            
-            /* Envia SYN-ACK */
-            cliSeq = Integer.parseInt(data[1]);
-            flag = "SYN-ACK";
-            seq = 0;
-            ack = cliSeq + 1;
-
-            msg = flag + separator + seq + separator + ack;
-            connData = msg.getBytes();
-            IPAddress = connPacket.getAddress();
-            port = connPacket.getPort();
-            connPacket = new DatagramPacket(connData, connData.length, IPAddress, port);
-            
-            System.out.println("\nEnviando para "+IPAddress+":"+port+" a mensagem ("+connData.length+" bytes): "+msg+".");
-            serverSocket.send(connPacket);
-
-            /* Recebe ACK */
-            System.out.println("\nEsperando ACK...");
-            serverSocket.receive(connPacket);
-
-            /* Exibe mensagem recebida */
-            msg = cleanMessage(connPacket);
-            System.out.println("\nRecebido de "+IPAddress+":"+port+" a mensagem ("+connPacket.getLength()+" bytes): "+msg);
-
-            data = msg.split(separator);
-            if (data.length == 2 && data[0].equals("ACK"))
+         if (connected)
+         {/*
+            String msg = null;
+            DatagramPacket recvPacket = receive(msg);
+            msg = cleanMessage(recvPacket);
+            String[] recvData = msg.split(separator);
+*/
+            /* Tentando receber transferência */
+  /*          if (recvData.length > 1 && recvData[0].equals("DATA"))
             {
-               cliAck = Integer.parseInt(data[1]);
-               if (cliAck == seq+1)
-               {
-                  System.out.println("\nConexao estabelecida!");
-                  connected = true;
-               }
+               
             }
-            else
-            {
-               System.out.println("\nConexao interrompida!");
-               System.exit(1);
-            }
-         }
-         else
-         {
-            System.err.println("SYN nao encontrado.");
-            System.exit(1);
-         }
+    */      
+            /* Esperando finalizar conexão */
+            connected = tryDisconnect();
 
-
-         do
-         {
-
-         }while(connected);
-
-         /* Gera um arquivo .txt */
-         final String fileName = generateName();
-         String absoluteFilePath = sourceDir + File.separator + "receive" + File.separator + fileName;
-         FileOutputStream fos = new FileOutputStream(absoluteFilePath);
-         System.out.println("Arquivo \""+fileName+"\" criado.");
-
-         
-         /* A quantidade de pacotes recebida está hard-coded */
-         for (int i = 0; i < 80; i++)
-         {
-            /* Recebe pacote e escreve no arquivo .txt */
-            serverSocket.receive(connPacket);
-            packetsReceived++;
-
-            IPAddress = connPacket.getAddress();
-            port = connPacket.getPort();
-            System.out.println("Recebido pacote #"+packetsReceived+" de "+IPAddress+":"+port+".");
-
-            //String packetData = new String(receivePacket.getData());
-            fos.write(connData);
-         }
-         
-         fos.close();
+            System.exit(0);
+         } else System.err.println("Erro ao conectar. :(");
+         System.exit(1);
 
          // o lint do java sempre apontava warning para 'serverSocket' e 'fos' 
          // pois os mesmos nunca eram fechados. portanto este trecho serve apenas
          //  para eliminar estes warnings.
-         if (fileName == null)
+         if (socket == null)
             break;
       }
-      serverSocket.close();
+      socket.close();
    }
 
    private static String generateName()
@@ -161,6 +89,150 @@ class UDPServer {
          cleanData[i] = p.getData()[i];
       
       String cleanMessage = new String(cleanData);
+      System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage);
       return cleanMessage;
    }
+
+   private static void send(String msg)
+   {
+      byte[] sendData = msg.getBytes();
+      DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
+
+      System.out.println("Enviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".");
+      try{
+         socket.send(sendPacket);
+      } catch (Exception e) {
+         System.err.println("ERRO: Não foi possível enviar pacote");
+         System.err.println(e);
+      }
+   }
+
+   /**
+    * Recebe pacote UDP de até 1 Kb. Retransmite 'msg' caso uma exceção ocorra.
+    * @param msg Mensagem a ser retransmitida
+    * @return  Pacote UDP recebido.
+    */
+    private static DatagramPacket receive(String msg)
+    {
+      DatagramPacket recvPacket = null;
+      byte[] recvData = new byte[1024];
+      
+      recvPacket = new DatagramPacket(recvData, recvData.length);
+      try {
+         socket.receive(recvPacket);
+      } catch (SocketTimeoutException e) {
+         if (msg != null)
+         {
+            System.err.println("TIMEOUT: Retransmitindo mensagem.");
+            send(msg);
+         } else System.err.println("TIMEOUT: "+e);
+      } catch (IOException e){
+         if (msg != null)
+         {
+            System.err.println("I/O: Retransmitindo mensagem");
+            send(msg);
+         } else System.err.println("I/O: "+e);
+      }
+      return recvPacket;
+    }
+
+    private static boolean tryConnect()
+    {
+      boolean connected = false;
+      byte[] recvData = new byte[1024];
+      DatagramPacket recvPacket = new DatagramPacket(recvData, recvData.length);
+
+      System.out.println("\nAguardando por conexões...\n");
+      try{
+         socket.receive(recvPacket);
+      } catch(IOException e) {
+         System.err.println("ERRO: "+e);
+         System.exit(1);
+      }
+
+      ip = recvPacket.getAddress();
+      port = recvPacket.getPort();
+   
+      /* Limpa e exibe mensagem recebida */
+      String msg = cleanMessage(recvPacket);
+
+      /* Se receber SYN, tenta 3-Way Handshake */    
+      String[] data = msg.split(separator);
+      if (data.length == 2 && data[0].equals("SYN"))
+      {
+         try {
+            socket.setSoTimeout(5000);
+         } catch (SocketException e) {
+            System.err.println("ERRO: "+e);
+            System.exit(1);
+         }
+
+         /* Envia SYN-ACK */
+         int cliSeq = Integer.parseInt(data[1]); //Client SEQ
+         int seq = 0;
+         int ack = cliSeq + 1;
+         msg = "SYN-ACK" + separator + seq + separator + ack;
+         send(msg);
+
+         /* Aguarda ACK do cliente */
+         System.out.println("\nEsperando ACK...");
+         recvPacket = receive(msg);
+
+         /* Limpa e verifica se recebeu ACK corretamente */
+         msg = cleanMessage(recvPacket);
+         data = msg.split(separator);
+         if (data.length == 2 && data[0].equals("ACK") && Integer.parseInt(data[1]) == seq+1)
+         {
+            System.out.println("\nConexao estabelecida!");
+            connected = true;
+         } else System.out.println("Resposta ACK inválida do cliente.\n");
+      } else System.err.println("Resposta SYN inválida do cliente.\n");
+
+      return connected;
+    }
+
+    private static boolean tryDisconnect()
+    {
+      boolean connected = true;
+      String msg = null;
+      int attempts = 1; 
+
+      do
+      {
+         /* Aguarda resposta do servidor */
+         System.out.println("\nEsperando FIN...");
+         DatagramPacket recvPacket = receive(msg);
+         msg = cleanMessage(recvPacket);
+         
+         /* Verifica se recebeu FIN corretamente */
+         String[] data = msg.split(separator);
+         if (data.length == 2 && data[0].equals("FIN"))
+         {
+            /* Envia ACK */
+            int ack = Integer.parseInt(data[1])+1;
+            msg = "ACK"+separator+ack;
+            send(msg);
+
+            /* Envia FIN-ACK */
+            int seq = 0;
+            ack = Integer.parseInt(data[1])+1;
+            msg = "FIN-ACK"+separator+seq+separator+ack;
+            send(msg);
+
+            /* Aguarda resposta do servidor */
+            System.out.println("\nEsperando ACK...");
+            recvPacket = receive(msg);
+            msg = cleanMessage(recvPacket);
+            data = msg.split(separator);
+            if (data.length == 2 && data[0].equals("ACK") && Integer.parseInt(data[1]) == seq+1)
+            {
+               System.out.println("Conexão encerrada.\n");
+               connected = false;
+            } else System.err.println("Resposta ACK inválida do servidor!\n");
+         } else System.err.println("Resposta FIN inválida do servidor!\n");
+         attempts++;
+      } while (connected && attempts < 3);
+      
+      return connected;
+    }
 }
