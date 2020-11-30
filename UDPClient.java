@@ -53,36 +53,42 @@ class UDPClient {
 
    private static boolean transfer(Map<Integer,byte[]> f)
    {
+      int windowSize = 1; // Janela de congestionamento
+      int seq = 0;  // Pacotes enviados
+      byte[] data = null;
+
       boolean transfered = false;
-      for(int i = 0; i < f.size(); i++)
+
+      /* Enquanto todos pacotes não forem enviados */
+      while (seq < f.size())
       {
-         boolean success = false;
-         int attempts = 0;
-         do
+         for(int i = 0; i < windowSize; i++)
          {
-            /* Envia pacote i ao servidor*/
-            byte[] data = f.get(i);
+            if (seq+i >= f.size())
+               break;
+            data = f.get(seq+i); 
             send(data);
+         }
 
-            /* Aguarda ACK i+1 do servidor */
-            System.out.println("Aguardando ACK...");
+         /* Aguarda ACKs do servidor*/
+         for(int i = 0; i < windowSize; i++)
+         {
+            if (seq+i >= f.size())
+               break;
             DatagramPacket recvPacket = receive(data);
-
-            /* Exibe resposta do servidor */
             String msg = cleanMessage(recvPacket);
-
-            /* Verifica se recebeu ACK corretamente */
             String[] recvData = msg.split(separator);
-            if (recvData.length == 2 && recvData[0].equals("ACK") && Integer.parseInt(recvData[1]) == i+1)
-               success = true;
-            else System.err.println("Resposta ACK inválida do servidor.\n");
-            attempts++;
-         } while(!success & attempts < 3);
-         
-         if (attempts >= 3)
-            break;
+            if (recvData.length == 2 && recvData[0].equals("ACK"))
+            {
+               /* se ack = seq+1 */
+               if (Integer.parseInt(recvData[1]) == seq+1)
+                  seq++;
+               else
+                  System.err.println("ACK esperado:"+(seq+1)+"\tAck recebido: "+Integer.parseInt(recvData[1]));
+            } else System.err.println("Resposta ACK inválida do servidor");
+         }
 
-         if (i == f.size()-1 && success)
+         if (seq == f.size()-1)
             transfered = true;
       }
       return transfered;
