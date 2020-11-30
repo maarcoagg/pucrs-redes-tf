@@ -1,7 +1,3 @@
-// Recebe um pacote de algum cliente
-// Separa o dado, o endereco IP e a porta deste cliente
-// Imprime o dado na tela
-
 import java.io.*;
 import java.net.*;
 import java.util.HashMap;
@@ -15,6 +11,7 @@ class UDPServer {
    static DatagramSocket socket; // UDP socket
    static InetAddress ip; // IP cliente
    static int port;  // Port cliente
+   static long sleepTime = 2000;
    static String checksum;
    static String filePath;
    final static String separator = ";";
@@ -54,7 +51,10 @@ class UDPServer {
                      byte[] data = recvData[3].getBytes();
                      crc.update(data);
                      crcVal = crc.getValue();
-                     System.out.print("\nPacote #"+ack+" recebido ("+data.length+" bytes). CRC: "+crcVal);
+                     System.out.print("Pacote #"+ack+" recebido ("+data.length+" bytes). CRC: "+crcVal);
+
+                     sleep(sleepTime); // recebe pacotes e testa CRC
+
                      if (crcVal == Long.parseLong(recvData[2]))
                      {
                         System.out.println("\t(OK).");
@@ -73,6 +73,28 @@ class UDPServer {
                   break;
                   case "CHECKSUM":
                      checksum = recvData[1];
+
+                     /* Remonta arquivo original */
+                     for(int i = 0; i < fileMap.size(); i++)
+                     {
+                        byte[] data = fileMap.get(i);
+                        if (i < fileMap.size()-1) //se nao for ultimo pacote
+                           fos.write(data);
+                        else //último pacote
+                        {
+                           String str = new String(data);
+                           str = str.split(":")[0] + ":";
+                           fos.write(str.getBytes());
+                        }
+                     }
+                     fileMap = new HashMap<>();
+
+                     String thisChecksum = verifyChecksum();
+                     send("CHECKSUM"+separator+thisChecksum);
+                     if (checksum.equals(thisChecksum)) 
+                        System.out.println("Checksum OK.");
+                     else System.out.println("Checksum NOT-OK.");
+
                      break;
                   case "FIN": /* Finaliza conexão */
                   connected = tryDisconnect(Integer.parseInt(recvData[1]));
@@ -81,29 +103,6 @@ class UDPServer {
                   System.err.println("Flag inválida: "+flag+". Pacote descartado.");
                }
             } while (connected);
-         }
-
-         if (fileMap.size() > 0)
-         {
-            /* Remonta arquivo original */
-            for(int i = 0; i < fileMap.size(); i++)
-            {
-               byte[] data = fileMap.get(i);
-               if (i < fileMap.size()-1) //se nao for ultimo pacote
-                  fos.write(data);
-               else //último pacote
-               {
-                  String str = new String(data);
-                  str = str.split(":")[0] + ":";
-                  fos.write(str.getBytes());
-               }
-            }
-            fileMap = new HashMap<>();
-
-            boolean equalChecksum = verifyChecksum();
-            if (equalChecksum)  
-               System.out.println("Checksum OK.");
-            else System.out.println("Checksum NOT-OK.");
          }
       }
    }
@@ -141,7 +140,7 @@ class UDPServer {
       byte[] sendData = msg.getBytes();
       DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, ip, port);
 
-      System.out.println("\nEnviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".");
+      System.out.println("\nEnviando para "+ip+":"+port+" ("+sendData.length+" bytes): "+msg+".\n");
       try{
          socket.send(sendPacket);
       } catch (Exception e) {
@@ -196,7 +195,7 @@ class UDPServer {
 
       ip = recvPacket.getAddress();
       port = recvPacket.getPort();
-      setTimeout(5000);
+      setTimeout(10000);
       
       /* Limpa e exibe mensagem recebida */
       String msg = cleanMessage(recvPacket);
@@ -206,14 +205,16 @@ class UDPServer {
       if (data.length == 2 && data[0].equals("SYN"))
       {
          try {
-            socket.setSoTimeout(5000);
+            socket.setSoTimeout(10000);
          } catch (SocketException e) {
             System.err.println("ERRO: "+e);
             System.exit(1);
          }
 
          /* Envia SYN-ACK */
-         int cliSeq = Integer.parseInt(data[1]); //Client SEQ
+         System.out.println("\nEnviando SYN-ACK.");
+         sleep(sleepTime);
+         int cliSeq = Integer.parseInt(data[1]); 
          int seq = 0;
          int ack = cliSeq + 1;
          msg = "SYN-ACK" + separator + seq + separator + ack;
@@ -222,13 +223,14 @@ class UDPServer {
          /* Aguarda ACK do cliente */
          System.out.println("\nEsperando ACK...");
          recvPacket = receive(msg);
-
+         sleep(sleepTime);
          /* Limpa e verifica se recebeu ACK corretamente */
          msg = cleanMessage(recvPacket);
          data = msg.split(separator);
          if (data.length == 2 && data[0].equals("ACK") && Integer.parseInt(data[1]) == seq+1)
          {
             System.out.println("\nConexao estabelecida!");
+ 
             connected = true;
          } else System.out.println("Resposta ACK inválida do cliente.\n");
       } else System.err.println("Resposta SYN inválida do cliente.\n");
@@ -281,7 +283,8 @@ class UDPServer {
       FileOutputStream fos;
       try {
          fos = new FileOutputStream(absoluteFilePath);
-         System.out.println("Arquivo \""+fileName+"\" criado.");
+         System.out.println("\nArquivo \""+fileName+"\" criado.\n");
+         sleep(sleepTime);
       } catch (FileNotFoundException e) {
          System.err.println("ERRO: "+e);
          fos = null;
@@ -324,19 +327,26 @@ class UDPServer {
       return sb.toString();
    }
 
-   private static boolean verifyChecksum()
+   private static String verifyChecksum()
    {
-      boolean equal = false;
+      String thisChecksum = null;
       try{
          MessageDigest md5Digest = MessageDigest.getInstance("MD5");
-         String thisChecksum = getFileChecksum(md5Digest,new File(filePath));
+         thisChecksum = getFileChecksum(md5Digest,new File(filePath));
          System.out.println("Checksum gerado: "+thisChecksum);
-         equal = checksum.equals(thisChecksum);
       } catch (Exception e) {
          System.err.println("CHECKSUM: "+e);
          System.exit(1);
       }
+      return thisChecksum;
+   }
 
-      return equal;
+   private static void sleep(long ms)
+   {
+      try{
+         Thread.sleep(ms);
+      } catch(Exception e) {
+         
+      }
    }
 }

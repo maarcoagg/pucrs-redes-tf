@@ -1,6 +1,3 @@
-// Le uma linha do teclado
-// Envia o pacote (linha digitada) ao servidor
-
 import java.io.*; // classes para input e output streams e
 import java.net.*;// DatagramaSocket,InetAddress,DatagramaPacket
 import java.util.HashMap;
@@ -16,6 +13,7 @@ class UDPClient {
    static InetAddress ip;  // IP servidor
    static int port = 9876; // Port servidor
    static int winSize = 1;
+   static long sleepTime = 2000;
    static String checksum;
    static String winMode = "SS";
    final static String separator = ";";
@@ -25,7 +23,7 @@ class UDPClient {
    {            
       ip = InetAddress.getByName("localhost");
       socket = new DatagramSocket();
-      socket.setSoTimeout(5000); // Time-out: 5 seg
+      socket.setSoTimeout(10000); // Time-out: 10 seg
       boolean connected = false;
       Map<Integer,byte[]> fileMap;
 
@@ -47,10 +45,22 @@ class UDPClient {
             String msg = "CHECKSUM" + separator + checksum;
             send(msg);
             
-            System.out.println("Arquivo enviado com sucesso.\n");
+            /* Recebe checksum do server*/
+
+            DatagramPacket recvPacket = receive(msg);
+            msg = cleanMessage(recvPacket);
+            String[] recvData = msg.split(separator);
+            if (recvData.length == 2 && recvData[0].equals("CHECKSUM"))
+            {
+               String serverChecksum = recvData[1];
+               if (checksum.equals(serverChecksum))
+                  System.out.println("Arquivo enviado com sucesso :)\n");
+               else
+                  System.err.println("Erro ao enviar arquivo :(\n");
+            }
          }
          else
-            System.err.println("Erro ao enviar arquivo. :(\n");
+            System.err.println("Erro ao enviar arquivo :(\n");
          
          /* Tenta FIN-ACK Handshake */ 
          connected = tryDisconnect();
@@ -185,6 +195,7 @@ class UDPClient {
          MessageDigest md5Digest = MessageDigest.getInstance("MD5");
          checksum = getFileChecksum(md5Digest,new File(selectedPath));
          System.out.println("\nChecksum do arquivo "+fileName+": "+checksum);
+         sleep(sleepTime);
       } catch (Exception e) {
          System.err.println("ERRO: "+e);
          System.exit(1);
@@ -253,6 +264,7 @@ class UDPClient {
       
       String cleanMessage = new String(cleanData);
       System.out.println("Recebido de "+ip+":"+port+" a mensagem ("+p.getLength()+" bytes): "+cleanMessage+"\n");
+      sleep(sleepTime);
       return cleanMessage;
    }
 
@@ -288,6 +300,8 @@ class UDPClient {
       System.out.println("Tamanho em bytes: "+fileSize);
       System.out.println("Pacotes necessarios: "+filePackets+"\n");
 
+      sleep(sleepTime);
+
       byte[] sendData;
       byte[] headerBytes;
       byte[] dataBytes;
@@ -319,7 +333,7 @@ class UDPClient {
                   readedData++;
                }
 
-               System.out.println("Ultimo pacote ("+dataSize+"/"+dataBytes.length+" bytes): "+new String(dataBytes));
+               System.out.println("\nÚltimo pacote ("+dataSize+"/"+dataBytes.length+" bytes): "+new String(dataBytes));
             }
 
             /* Calcula CRC*/
@@ -349,6 +363,7 @@ class UDPClient {
             System.out.println("CRC do pacote #"+(i+1)+": "+crcVal);
          }
          System.out.println("Pacotes criados.");
+         sleep(sleepTime);
       } catch (IOException e) {
          System.err.println(e);
          System.exit(1);
@@ -364,6 +379,8 @@ class UDPClient {
       {
          System.out.println("\nIniciando tentativa #"+attempts+" de conexão com servidor...");
          
+         sleep(sleepTime);
+
          /* Envia SYN */
          int seq = 0;
          String msg = "SYN"+separator+seq;
@@ -410,6 +427,8 @@ class UDPClient {
       do
       {
          System.out.println("Iniciando tentativa #"+attempts+" de encerrar conexão com servidor.\n");
+         
+         sleep(sleepTime);
 
          /* Envia FIN */
          seq = 0;
@@ -421,6 +440,8 @@ class UDPClient {
          recvPacket = receive(msg);
          msg = cleanMessage(recvPacket);
          
+         sleep(sleepTime);
+        
          /* Verifica se recebeu ACK corretamente */
          data = msg.split(separator);
          if (data.length == 2 && data[0].equals("ACK") && Integer.parseInt(data[1]) == seq+1)
@@ -431,6 +452,8 @@ class UDPClient {
             System.out.println("Esperando FIN-ACK...");
             recvPacket = receive(msg);
             msg = cleanMessage(recvPacket);
+            
+            sleep(sleepTime);
             
             /* Verifica se recebeu FIN-ACK corretamente */
             data = msg.split(separator);
@@ -450,7 +473,7 @@ class UDPClient {
          attempts++;
       }while(connected);
 
-      return false;
+      return connected;
    }
 
    private static void send(String msg)
@@ -549,5 +572,14 @@ class UDPClient {
       
       //return complete hash
       return sb.toString();
+   }
+
+   private static void sleep(long ms)
+   {
+      try{
+         Thread.sleep(ms);
+      } catch(Exception e) {
+         
+      }
    }
 }
